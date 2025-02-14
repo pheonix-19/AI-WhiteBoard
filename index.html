@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>AI Smart Whiteboard</title>
+    <title>AI Smart Whiteboard with Grid</title>
     <style>
         body {
             margin: 0;
@@ -34,11 +34,39 @@
         .toolbar button:hover {
             background: #0056b3;
         }
-        #whiteboard {
+        .toolbar button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        .canvas-container {
+            position: relative;
             margin: 20px;
+        }
+        #whiteboard {
             border: 1px solid #ccc;
             background: white;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #gridCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 1;
+        }
+        #status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+        .error { background: #ffe6e6; color: #ff0000; }
+        .success { background: #e6ffe6; color: #006600; }
+        .settings {
+            margin: 10px 0;
+            display: flex;
+            gap: 10px;
+            align-items: center;
         }
     </style>
 </head>
@@ -46,33 +74,101 @@
     <div class="toolbar">
         <button id="clearBtn">Clear Board</button>
         <button id="recognizeBtn">Recognize Text</button>
+        <button id="toggleGridBtn">Toggle Grid</button>
     </div>
-    <canvas id="whiteboard" width="800" height="600"></canvas>
+    <div class="settings">
+        <label>
+            Grid Size:
+            <select id="gridSize">
+                <option value="30">Small</option>
+                <option value="40" selected>Medium</option>
+                <option value="50">Large</option>
+            </select>
+        </label>
+        <label>
+            Line Color:
+            <select id="lineColor">
+                <option value="black">Black</option>
+                <option value="blue">Blue</option>
+                <option value="red">Red</option>
+            </select>
+        </label>
+    </div>
+    <div class="canvas-container">
+        <canvas id="gridCanvas" width="800" height="600"></canvas>
+        <canvas id="whiteboard" width="800" height="600"></canvas>
+    </div>
+    <div id="status"></div>
 
     <script>
         const canvas = document.getElementById('whiteboard');
+        const gridCanvas = document.getElementById('gridCanvas');
         const ctx = canvas.getContext('2d');
+        const gridCtx = gridCanvas.getContext('2d');
         const clearBtn = document.getElementById('clearBtn');
         const recognizeBtn = document.getElementById('recognizeBtn');
+        const toggleGridBtn = document.getElementById('toggleGridBtn');
+        const gridSizeSelect = document.getElementById('gridSize');
+        const lineColorSelect = document.getElementById('lineColor');
+        const status = document.getElementById('status');
         
         let isDrawing = false;
         let lastX = 0;
         let lastY = 0;
         let strokes = [];
         let currentStroke = [];
+        let showGrid = true;
 
         // Initialize canvas
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.strokeStyle = 'black';
+        ctx.strokeStyle = lineColorSelect.value;
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
 
-        // Drawing functions
+        function drawGrid() {
+            if (!showGrid) {
+                gridCtx.clearRect(0, 0, gridCanvas.width, gridCanvas.height);
+                return;
+            }
+
+            const gridSize = parseInt(gridSizeSelect.value);
+            gridCtx.clearRect(0, 0, gridCanvas.width, gridCanvas.height);
+            gridCtx.strokeStyle = '#e0e0e0';
+            gridCtx.lineWidth = 1;
+
+            // Draw horizontal lines
+            for (let y = gridSize; y < gridCanvas.height; y += gridSize) {
+                gridCtx.beginPath();
+                gridCtx.moveTo(0, y);
+                gridCtx.lineTo(gridCanvas.width, y);
+                gridCtx.stroke();
+            }
+
+            // Draw baseline at 3/4 of each grid cell
+            gridCtx.strokeStyle = '#b0b0b0';
+            for (let y = gridSize; y < gridCanvas.height; y += gridSize) {
+                gridCtx.beginPath();
+                gridCtx.moveTo(0, y - (gridSize / 4));
+                gridCtx.lineTo(gridCanvas.width, y - (gridSize / 4));
+                gridCtx.stroke();
+            }
+        }
+
+        function showStatus(message, isError = false) {
+            status.textContent = message;
+            status.style.display = 'block';
+            status.className = isError ? 'error' : 'success';
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 3000);
+        }
+
         function startDrawing(e) {
             isDrawing = true;
             [lastX, lastY] = [e.offsetX, e.offsetY];
             currentStroke = [[lastX, lastY]];
+            ctx.strokeStyle = lineColorSelect.value;
         }
 
         function draw(e) {
@@ -101,17 +197,29 @@
         canvas.addEventListener('mouseup', stopDrawing);
         canvas.addEventListener('mouseout', stopDrawing);
 
-        // Clear canvas
         clearBtn.addEventListener('click', () => {
             ctx.fillStyle = 'white';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.strokeStyle = 'black';
+            ctx.strokeStyle = lineColorSelect.value;
             strokes = [];
+            showStatus('Board cleared');
         });
 
-        // Send to backend for recognition
+        toggleGridBtn.addEventListener('click', () => {
+            showGrid = !showGrid;
+            drawGrid();
+        });
+
+        gridSizeSelect.addEventListener('change', drawGrid);
+
         recognizeBtn.addEventListener('click', async () => {
-            if (strokes.length === 0) return;
+            if (strokes.length === 0) {
+                showStatus('Please write something first', true);
+                return;
+            }
+
+            recognizeBtn.disabled = true;
+            showStatus('Processing...');
 
             try {
                 const response = await fetch('http://localhost:5000/recognize', {
@@ -119,24 +227,33 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ strokes: strokes })
+                    body: JSON.stringify({ 
+                        strokes: strokes,
+                        gridSize: parseInt(gridSizeSelect.value)
+                    })
                 });
 
                 const data = await response.json();
-                if (data.text) {
-                    // Clear the drawing
-                    ctx.fillStyle = 'white';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    
-                    // Draw the recognized text
-                    ctx.fillStyle = 'black';
-                    ctx.font = '24px Arial';
-                    ctx.fillText(data.text, canvas.width/2 - 50, canvas.height/2);
+                
+                if (response.ok) {
+                    if (data.text) {
+                        showStatus(`Recognized text: ${data.text}`);
+                    } else {
+                        showStatus('No text detected', true);
+                    }
+                } else {
+                    throw new Error(data.error || 'Recognition failed');
                 }
             } catch (error) {
                 console.error('Error:', error);
+                showStatus(`Error: ${error.message}`, true);
+            } finally {
+                recognizeBtn.disabled = false;
             }
         });
+
+        // Initialize grid
+        drawGrid();
     </script>
 </body>
 </html>
