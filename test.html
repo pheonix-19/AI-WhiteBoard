@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Enhanced AI Smart Whiteboard</title>
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        .toolbar {
+            width: 100%;
+            padding: 10px;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .toolbar button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .toolbar button.active {
+            background: #004c99;
+        }
+        .toolbar button:hover {
+            background: #0056b3;
+        }
+        .toolbar button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        .canvas-container {
+            position: relative;
+            margin: 20px;
+        }
+        #whiteboard {
+            border: 1px solid #ccc;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #gridCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 1;
+        }
+        #textCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 2;
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <button id="penBtn" class="active">✏️ Pen</button>
+        <button id="eraserBtn">🧹 Eraser</button>
+        <button id="shapeBtn">⬜ Shapes</button>
+        <button id="clearBtn">🗑️ Clear</button>
+        <button id="undoBtn">↩️ Undo</button>
+        <button id="redoBtn">↪️ Redo</button>
+        <button id="toggleGridBtn">📏 Grid</button>
+    </div>
+    <div class="canvas-container">
+        <canvas id="gridCanvas" width="800" height="600"></canvas>
+        <canvas id="whiteboard" width="800" height="600"></canvas>
+        <canvas id="textCanvas" width="800" height="600"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('whiteboard');
+        const gridCanvas = document.getElementById('gridCanvas');
+        const textCanvas = document.getElementById('textCanvas');
+        const ctx = canvas.getContext('2d');
+        const gridCtx = gridCanvas.getContext('2d');
+        const textCtx = textCanvas.getContext('2d');
+
+        // Tool buttons
+        const toggleGridBtn = document.getElementById('toggleGridBtn');
+
+        let showGrid = true;
+
+        // Function to completely remove the grid
+        function removeGrid() {
+            gridCtx.clearRect(0, 0, gridCanvas.width, gridCanvas.height);  // Clear all grid lines
+            gridCanvas.style.display = 'none';  // Hide the grid canvas
+        }
+
+        // Add event listener to toggle grid button
+        toggleGridBtn.addEventListener('click', () => {
+            showGrid = !showGrid;
+            if (showGrid) {
+                gridCanvas.style.display = 'block';
+                drawGrid();
+            } else {
+                removeGrid();
+            }
+        });
+
+        // Function to draw the grid (for initial drawing)
+        function drawGrid() {
+            gridCtx.clearRect(0, 0, gridCanvas.width, gridCanvas.height);  // Clear previous grid
+            gridCanvas.style.display = 'block';  // Ensure grid canvas is visible
+            gridCtx.strokeStyle = '#ddd';  // Grid line color
+            gridCtx.lineWidth = 0.5;
+            const gridSize = 40;  // Default grid size
+
+            for (let x = 0; x <= gridCanvas.width; x += gridSize) {
+                gridCtx.beginPath();
+                gridCtx.moveTo(x, 0);
+                gridCtx.lineTo(x, gridCanvas.height);
+                gridCtx.stroke();
+            }
+
+            for (let y = 0; y <= gridCanvas.height; y += gridSize) {
+                gridCtx.beginPath();
+                gridCtx.moveTo(0, y);
+                gridCtx.lineTo(gridCanvas.width, y);
+                gridCtx.stroke();
+            }
+        }
+
+        // Initialize grid on page load
+        drawGrid();
+    </script>
+</body>
+</html>
