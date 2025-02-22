@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Enhanced AI Smart Whiteboard</title>
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        .toolbar {
+            width: 100%;
+            padding: 10px;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .toolbar button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .toolbar button.active {
+            background: #004c99;
+        }
+        .toolbar button:hover {
+            background: #0056b3;
+        }
+        .toolbar button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        .canvas-container {
+            position: relative;
+            margin: 20px;
+        }
+        #whiteboard {
+            border: 1px solid #ccc;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #gridCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 1;
+        }
+        #textCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 2;
+        }
+        .settings {
+            margin: 10px 0;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .color-picker {
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .shape-preview {
+            width: 30px;
+            height: 30px;
+            border: 1px solid #ccc;
+            display: inline-block;
+            vertical-align: middle;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <button id="penBtn" class="active">✏️ Pen</button>
+        <button id="eraserBtn">🧹 Eraser</button>
+        <button id="shapeBtn">⬜ Shapes</button>
+        <button id="clearBtn">🗑️ Clear</button>
+        <button id="undoBtn">↩️ Undo</button>
+        <button id="redoBtn">↪️ Redo</button>
+        <button id="toggleGridBtn">📏 Grid</button>
+    </div>
+    <div class="settings">
+        <label>
+            Language:
+            <select id="language">
+                <option value="en">English</option>
+                <option value="zh">Chinese</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+                <option value="math">Math</option>
+            </select>
+        </label>
+        <label>
+            Shape:
+            <select id="shapeType">
+                <option value="rectangle">Rectangle</option>
+                <option value="circle">Circle</option>
+                <option value="triangle">Triangle</option>
+                <option value="line">Line</option>
+                <option value="arrow">Arrow</option>
+            </select>
+        </label>
+        <label>
+            Grid Size:
+            <select id="gridSize">
+                <option value="30">Small</option>
+                <option value="40" selected>Medium</option>
+                <option value="50">Large</option>
+            </select>
+        </label>
+        <label>
+            Font Size:
+            <select id="fontSize">
+                <option value="20">Small</option>
+                <option value="24" selected>Medium</option>
+                <option value="28">Large</option>
+            </select>
+        </label>
+        <label>
+            Pen Size:
+            <input type="range" id="penSize" min="1" max="10" value="2">
+        </label>
+        <input type="color" id="colorPicker" class="color-picker" value="#000000">
+    </div>
+    <div class="canvas-container">
+        <canvas id="gridCanvas" width="800" height="600"></canvas>
+        <canvas id="whiteboard" width="800" height="600"></canvas>
+        <canvas id="textCanvas" width="800" height="600"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('whiteboard');
+        const gridCanvas = document.getElementById('gridCanvas');
+        const textCanvas = document.getElementById('textCanvas');
+        const ctx = canvas.getContext('2d');
+        const gridCtx = gridCanvas.getContext('2d');
+        const textCtx = textCanvas.getContext('2d');
+
+        // Tool buttons
+        const penBtn = document.getElementById('penBtn');
+        const eraserBtn = document.getElementById('eraserBtn');
+        const shapeBtn = document.getElementById('shapeBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const undoBtn = document.getElementById('undoBtn');
+        const redoBtn = document.getElementById('redoBtn');
+        const toggleGridBtn = document.getElementById('toggleGridBtn');
+
+        // Settings elements
+        const languageSelect = document.getElementById('language');
+        const shapeTypeSelect = document.getElementById('shapeType');
+        const gridSizeSelect = document.getElementById('gridSize');
+        const fontSizeSelect = document.getElementById('fontSize');
+        const penSizeInput = document.getElementById('penSize');
+        const colorPicker = document.getElementById('colorPicker');
+
+        // State variables
+        let isDrawing = false;
+        let currentTool = 'pen';
+        let showGrid = true;
+        let lastX = 0;
+        let lastY = 0;
+        let currentStroke = [];
+        let strokes = [];
+        let undoStack = [];
+        let redoStack = [];
+        let recognitionTimeout = null;
+        let startShape = null;
+
+        // Initialize canvas settings
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Tool selection handlers
+        function setTool(tool) {
+            currentTool = tool;
+            penBtn.classList.toggle('active', tool === 'pen');
+            eraserBtn.classList.toggle('active', tool === 'eraser');
+            shapeBtn.classList.toggle('active', tool === 'shape');
+            
+            if (tool === 'eraser') {
+                ctx.globalCompositeOperation = 'destination-out';
+            } else {
+                ctx.globalCompositeOperation = 'source-over';
+            }
+        }
+
+        penBtn.onclick = () => setTool('pen');
+        eraserBtn.onclick = () => setTool('eraser');
+        shapeBtn.onclick = () => setTool('shape');
+
+        // Drawing functions
+        function startDrawing(e) {
+            isDrawing = true;
+            [lastX, lastY] = [e.offsetX, e.offsetY];
+            currentStroke = [[lastX, lastY]];
+            
+            if (currentTool === 'shape') {
+                startShape = { x: lastX, y: lastY };
+            }
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            
+            if (currentTool === 'shape') {
+                // Clear previous shape preview
+                ctx.putImageData(undoStack[undoStack.length - 1], 0, 0);
+                drawShape(startShape, { x: e.offsetX, y: e.offsetY });
+            } else {
+                ctx.beginPath();
+                ctx.moveTo(lastX, lastY);
+                ctx.lineTo(e.offsetX, e.offsetY);
+                ctx.stroke();
+                
+                currentStroke.push([e.offsetX, e.offsetY]);
+                [lastX, lastY] = [e.offsetX, e.offsetY];
+            }
+        }
+
+        function drawShape(start, end) {
+            ctx.beginPath();
+            
+            switch (shapeTypeSelect.value) {
+                case 'rectangle':
+                    ctx.rect(start.x, start.y, end.x - start.x, end.y - start.y);
+                    break;
+                case 'circle':
+                    const radius = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+                    ctx.arc(start.x, start.y, radius, 0, Math.PI * 2);
+                    break;
+                case 'triangle':
+                    ctx.moveTo(start.x, end.y);
+                    ctx.lineTo(start.x + (end.x - start.x) / 2, start.y);
+                    ctx.lineTo(end.x, end.y);
+                    ctx.closePath();
+                    break;
+                case 'line':
+                    ctx.moveTo(start.x, start.y);
+                    ctx.lineTo(end.x, end.y);
+                    break;
+                case 'arrow':
+                    const angle = Math.atan2(end.y - start.y, end.x - start.x);
+                    const headLength = 20;
+                    
+                    ctx.moveTo(start.x, start.y);
+                    ctx.lineTo(end.x, end.y);
+                    
+                    ctx.lineTo(
+                        end.x - headLength * Math.cos(angle - Math.PI / 6),
+                        end.y - headLength * Math.sin(angle - Math.PI / 6)
+                    );
+                    ctx.moveTo(end.x, end.y);
+                    ctx.lineTo(
+                        end.x - headLength * Math.cos(angle + Math.PI / 6),
+                        end.y - headLength * Math.sin(angle + Math.PI / 6)
+                    );
+                    break;
+            }
+            
+            ctx.stroke();
+        }
+
+        function stopDrawing() {
+            if (!isDrawing) return;
+            isDrawing = false;
+            
+            if (currentStroke.length > 1) {
+                strokes.push(currentStroke);
+                saveState();
+                scheduleRecognition();
+            }
+        }
+
+        // Recognition functions
+        function scheduleRecognition() {
+            if (recognitionTimeout) {
+                clearTimeout(recognitionTimeout);
+            }
+            
+            recognitionTimeout = setTimeout(recognizeText, 1000);
+        }
+
+        async function recognizeText() {
+            try {
+                const response = await fetch('http://localhost:5000/recognize', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        strokes: strokes,
+                        gridSize: parseInt(gridSizeSelect.value),
+                        language: languageSelect.value
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok && data.text && data.text !== 'No text detected') {
+                    updateRecognizedText(data.text);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        function updateRecognizedText(text) {
+            textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+            textCtx.font = `${fontSizeSelect.value}px Arial`;
+            textCtx.fillStyle = 'rgba(0, 0, 255, 0.3)';
+            textCtx.textAlign = 'left';
+            textCtx.textBaseline = 'top';
+            
+            // Split text into lines and draw
+            const lines = text.split('\n');
+            lines.forEach((line, index) => {
+                textCtx.fillText(line, 10, 10 + (index * parseInt(fontSizeSelect.value)));
+            });
+        }
+
+        // State management
+        function saveState() {
+            undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+            redoStack = [];
+            updateUndoRedoButtons();
+        }
+
+        function undo() {
+            if (undoStack.length > 1) {
+                redoStack.push(undoStack.pop());
+                ctx.putImageData(undoStack[undoStack.length - 1], 0, 0);
+                updateUndoRedoButtons();
+                scheduleRecognition();
+            }
+        }
+
+        function redo() {
+            if (redoStack.length > 0) {
+                const state = redoStack.pop();
+                undoStack.push(state);
+                ctx.putImageData(state, 0, 0);
+                updateUndoRedoButtons();
+                scheduleRecognition();
+            }
+        }
+
+        function updateUndoRedoButtons() {
+            undoBtn.disabled = undoStack.length <= 1;
+            redoBtn.disabled = redoStack.length === 0;
+        }
+
+        // Event listeners
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+
+        clearBtn.addEventListener('click', () => {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+            strokes = [];
+            saveState();
+        });
+
+        toggleGridBtn.addEventListener('click', () => {
+            showGrid = !showGrid;
+            drawGrid();
+        });
+
+        undoBtn.addEventListener('click', undo);
+        redoBtn.addEventListener('click', redo);
+
+        // Settings event listeners
+        colorPicker.addEventListener('change', (e) => {
+            ctx.strokeStyle = e.target.value;
+        });
+
+        penSizeInput.addEventListener('input', (e) => {
+            ctx.lineWidth = e.target.value;
+        });
+
+        // Initialize
+        saveState();
+        drawGrid();
+    </script>
+</body>
+</html>
