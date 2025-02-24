@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>AI Smart Whiteboard with Grid</title>
+    <title>AI Smart Whiteboard with Text Replacement</title>
     <style>
         body {
             margin: 0;
@@ -54,6 +54,13 @@
             pointer-events: none;
             z-index: 1;
         }
+        #textCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 2;
+        }
         #status {
             margin-top: 10px;
             padding: 10px;
@@ -75,6 +82,7 @@
         <button id="clearBtn">Clear Board</button>
         <button id="recognizeBtn">Recognize Text</button>
         <button id="toggleGridBtn">Toggle Grid</button>
+        <button id="undoBtn">Undo Recognition</button>
     </div>
     <div class="settings">
         <label>
@@ -86,30 +94,34 @@
             </select>
         </label>
         <label>
-            Line Color:
-            <select id="lineColor">
-                <option value="black">Black</option>
-                <option value="blue">Blue</option>
-                <option value="red">Red</option>
+            Font Size:
+            <select id="fontSize">
+                <option value="20">Small</option>
+                <option value="24" selected>Medium</option>
+                <option value="28">Large</option>
             </select>
         </label>
     </div>
     <div class="canvas-container">
         <canvas id="gridCanvas" width="800" height="600"></canvas>
         <canvas id="whiteboard" width="800" height="600"></canvas>
+        <canvas id="textCanvas" width="800" height="600"></canvas>
     </div>
     <div id="status"></div>
 
     <script>
         const canvas = document.getElementById('whiteboard');
         const gridCanvas = document.getElementById('gridCanvas');
+        const textCanvas = document.getElementById('textCanvas');
         const ctx = canvas.getContext('2d');
         const gridCtx = gridCanvas.getContext('2d');
+        const textCtx = textCanvas.getContext('2d');
         const clearBtn = document.getElementById('clearBtn');
         const recognizeBtn = document.getElementById('recognizeBtn');
         const toggleGridBtn = document.getElementById('toggleGridBtn');
+        const undoBtn = document.getElementById('undoBtn');
         const gridSizeSelect = document.getElementById('gridSize');
-        const lineColorSelect = document.getElementById('lineColor');
+        const fontSizeSelect = document.getElementById('fontSize');
         const status = document.getElementById('status');
         
         let isDrawing = false;
@@ -118,13 +130,17 @@
         let strokes = [];
         let currentStroke = [];
         let showGrid = true;
+        let handwritingImage = null;
 
-        // Initialize canvas
+        // Initialize canvases
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.strokeStyle = lineColorSelect.value;
+        ctx.strokeStyle = 'black';
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
+
+        textCtx.textAlign = 'left';
+        textCtx.textBaseline = 'middle';
 
         function drawGrid() {
             if (!showGrid) {
@@ -145,7 +161,7 @@
                 gridCtx.stroke();
             }
 
-            // Draw baseline at 3/4 of each grid cell
+            // Draw baseline
             gridCtx.strokeStyle = '#b0b0b0';
             for (let y = gridSize; y < gridCanvas.height; y += gridSize) {
                 gridCtx.beginPath();
@@ -168,7 +184,6 @@
             isDrawing = true;
             [lastX, lastY] = [e.offsetX, e.offsetY];
             currentStroke = [[lastX, lastY]];
-            ctx.strokeStyle = lineColorSelect.value;
         }
 
         function draw(e) {
@@ -191,6 +206,41 @@
             }
         }
 
+        function saveHandwritingState() {
+            handwritingImage = new Image();
+            handwritingImage.src = canvas.toDataURL();
+        }
+
+        function restoreHandwriting() {
+            if (handwritingImage) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(handwritingImage, 0, 0);
+                textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+                showStatus('Restored handwriting');
+            }
+        }
+
+        function replaceWithText(text) {
+            // Save the handwriting state before replacing
+            saveHandwritingState();
+            
+            // Clear the main canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Clear and setup text canvas
+            textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+            textCtx.font = `${fontSizeSelect.value}px Arial`;
+            textCtx.fillStyle = 'black';
+            
+            // Calculate text position (centered)
+            const textMetrics = textCtx.measureText(text);
+            const x = (textCanvas.width - textMetrics.width) / 2;
+            const y = textCanvas.height / 2;
+            
+            // Draw the text
+            textCtx.fillText(text, x, y);
+        }
+
         // Event listeners
         canvas.addEventListener('mousedown', startDrawing);
         canvas.addEventListener('mousemove', draw);
@@ -200,8 +250,9 @@
         clearBtn.addEventListener('click', () => {
             ctx.fillStyle = 'white';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.strokeStyle = lineColorSelect.value;
+            textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
             strokes = [];
+            handwritingImage = null;
             showStatus('Board cleared');
         });
 
@@ -210,7 +261,16 @@
             drawGrid();
         });
 
+        undoBtn.addEventListener('click', restoreHandwriting);
+
         gridSizeSelect.addEventListener('change', drawGrid);
+
+        fontSizeSelect.addEventListener('change', () => {
+            if (handwritingImage === null) return;
+            // Re-render the text with new font size
+            textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+            textCtx.font = `${fontSizeSelect.value}px Arial`;
+        });
 
         recognizeBtn.addEventListener('click', async () => {
             if (strokes.length === 0) {
@@ -235,14 +295,11 @@
 
                 const data = await response.json();
                 
-                if (response.ok) {
-                    if (data.text) {
-                        showStatus(`Recognized text: ${data.text}`);
-                    } else {
-                        showStatus('No text detected', true);
-                    }
+                if (response.ok && data.text && data.text !== 'No text detected') {
+                    replaceWithText(data.text);
+                    showStatus(`Recognized text: ${data.text}`);
                 } else {
-                    throw new Error(data.error || 'Recognition failed');
+                    showStatus('No text detected', true);
                 }
             } catch (error) {
                 console.error('Error:', error);
